@@ -76,6 +76,11 @@ function M.command(args)
 				M.receive(args[2])
 			end
 		end,
+		prepare_generation = function()
+			if check_subargs(0, 0) then
+				M.prepare_generation()
+			end
+		end,
 	}
 
 	local sub = subcommands[args[1]]
@@ -270,6 +275,11 @@ function M.run_testcases(testcases_list, compile, only_show)
 	end
 	r:set_restore_winid(api.nvim_get_current_win())
 	r:show_ui()
+end
+
+function M.prepare_generation()
+	local generation = require("competitest.generate")
+	generation.prepare_generation()
 end
 
 ---Receive testcases, problems or contests from Competitive Companion

@@ -145,6 +145,8 @@ local default_config = {
 	open_received_problems = true,
 	open_received_contests = true,
 	replace_received_testcases = false,
+
+	generation_template_directory = false,
 }
 
 ---Return an updated configuration table with given options

@@ -81,6 +81,13 @@ function M.command(args)
 				M.prepare_generation()
 			end
 		end,
+		generate_input = function()
+			local passed_args = nil
+			if args[2] then
+				passed_args = { unpack(args, 2) }
+			end
+			M.generate_input(1, passed_args)
+		end,
 	}
 
 	local sub = subcommands[args[1]]
@@ -94,8 +101,11 @@ end
 ---Start testcase editor to add a new testcase or to edit a testcase that already exists
 ---@param add_testcase boolean: if true a new testcases will be added, otherwise edit a testcase that already exists
 ---@param tcnum integer | nil: testcase number
-function M.edit_testcase(add_testcase, tcnum)
+function M.edit_testcase(add_testcase, tcnum, bufnr_passed, input_val)
 	local bufnr = api.nvim_get_current_buf()
+	if bufnr_passed then
+		bufnr = bufnr_passed
+	end
 	config.load_buffer_config(bufnr) -- reload buffer configuration since it may have been updated in the meantime
 	local tctbl = testcases.buf_get_testcases(bufnr)
 	if add_testcase then
@@ -104,6 +114,9 @@ function M.edit_testcase(add_testcase, tcnum)
 			tcnum = tcnum + 1
 		end
 		tctbl[tcnum] = { input = "", output = "" }
+		if input_val then
+			tctbl[tcnum].input = input_val
+		end
 	end
 
 	local function start_editor(item) -- item.id is testcase number
@@ -232,10 +245,12 @@ function M.convert_testcases(mode)
 end
 
 M.runners = {} -- runners associated with a buffer
+M.generators = {} -- generator runners associated with a buffer
 
 ---Unload a runner (called on BufUnload)
 function M.remove_runner(bufnr)
 	M.runners[bufnr] = nil
+	M.generators[bufnr] = nil
 end
 
 ---Start testcases runner
@@ -280,6 +295,33 @@ end
 function M.prepare_generation()
 	local generation = require("competitest.generate")
 	generation.prepare_generation()
+end
+
+function M.generate_input(n, command_line_args)
+	local bufnr = api.nvim_get_current_buf()
+	local genfilename = api.nvim_buf_call(bufnr, function()
+		return vim.fn.expand("%:p:h")
+	end) .. "/gen.cpp"
+	if not M.generators[bufnr] then -- no runner is associated to buffer
+		M.generators[bufnr] = require("competitest.runner"):new(api.nvim_get_current_buf(), genfilename, command_line_args)
+		if not M.generators[bufnr] then -- an error occurred
+			return
+		end
+		-- remove runner data when buffer is unloaded
+		api.nvim_command("autocmd BufUnload <buffer=" .. bufnr .. "> lua require('competitest.commands').remove_runner(vim.fn.expand('<abuf>'))")
+	end
+	local r = M.generators[bufnr] -- current runner
+	if true then
+		r:kill_all_processes()
+		r:run_testcases({}, true, n)
+	end
+	r:set_restore_winid(api.nvim_get_current_win())
+	r:show_ui()
+	while r.tcdata[2].status ~= "DONE" do
+		vim.wait(100)
+	end
+	M.edit_testcase(true, nil, bufnr, table.concat(r.tcdata[2].stdout, "\n"))
+	M.generators[bufnr] = nil
 end
 
 ---Receive testcases, problems or contests from Competitive Companion

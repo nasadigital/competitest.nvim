@@ -101,9 +101,9 @@ end
 ---@param str string: the string to evaluate
 ---@param tcnum integer | string | nil: testcase number or identifier
 ---@return string | nil: the converted string, or nil on failure
-function M.buf_eval_string(bufnr, str, tcnum)
+function M.buf_eval_string(bufnr, str, tcnum, filepath)
 	M.file_format_modifiers["TCNUM"] = tostring(tcnum or "") -- testcase number
-	return M.eval_string(vim.api.nvim_buf_get_name(bufnr), str)
+	return M.eval_string(filepath or vim.api.nvim_buf_get_name(bufnr), str)
 end
 
 ---Returns true if the given file exists, false otherwise

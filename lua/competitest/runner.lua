@@ -10,7 +10,10 @@ TCRunner.__index = TCRunner
 ---Create a new Testcase Runner
 ---@param bufnr integer: buffer number that specify the buffer to associate the runner with
 ---@return object: a new TCRunner object, or nil on failure
-function TCRunner:new(bufnr)
+function TCRunner:new(bufnr, given_filename, given_args)
+	if not given_args then
+		given_args = {}
+	end
 	local filetype = api.nvim_buf_get_option(bufnr, "filetype")
 	local filedir = api.nvim_buf_call(bufnr, function()
 		return vim.fn.expand("%:p:h")
@@ -20,10 +23,10 @@ function TCRunner:new(bufnr)
 		if command == nil then
 			return nil
 		end
-		local exec = utils.buf_eval_string(bufnr, command.exec, nil)
+		local exec = utils.buf_eval_string(bufnr, command.exec, nil, given_filename)
 		local args = {}
-		for index, arg in ipairs(command.args or {}) do
-			args[index] = utils.buf_eval_string(bufnr, arg, nil)
+		for index, arg in ipairs(command.args or given_args) do
+			args[index] = utils.buf_eval_string(bufnr, arg, nil, given_filename)
 		end
 		return { exec = exec, args = args }
 	end
@@ -50,7 +53,7 @@ end
 ---Run the testcases specified in self.tcdata
 ---@param tctbl table | nil: table associating testcase numbers to file names
 ---@param compile boolean | nil: whether to compile or not
-function TCRunner:run_testcases(tctbl, compile)
+function TCRunner:run_testcases(tctbl, compile, generated_testcases)
 	if tctbl then -- if tctbl isn't specified use the testcases that were previously loaded
 		if self.config.save_all_files then
 			api.nvim_command("wa")
@@ -68,6 +71,13 @@ function TCRunner:run_testcases(tctbl, compile)
 		if self.compile then -- if compilation is needed we add it as a testcase
 			table.insert(self.tcdata, { stdin = {}, expout = nil, tcnum = "Compile" })
 		end
+
+		if generated_testcases then
+			for i = 1, generated_testcases do
+				table.insert(self.tcdata, { stdin = {}, expout = nil, tcnum = "Gen " .. i })
+			end
+		end
+
 		for tcnum, tc in pairs(tctbl) do
 			table.insert(self.tcdata, {
 				stdin = vim.split(tc.input, "\n", { plain = true }),
@@ -110,7 +120,9 @@ function TCRunner:run_testcases(tctbl, compile)
 			if tcnum == 1 and self.compile then
 				self:execute_testcase(tcnum, self.cc.exec, self.cc.args, self.compile_directory)
 			else
-				self:execute_testcase(tcnum, self.rc.exec, self.rc.args, self.running_directory)
+				local new_args = { unpack(self.rc.args) }
+				new_args[#new_args + 1] = tostring(tcnum)
+				self:execute_testcase(tcnum, self.rc.exec, new_args, self.running_directory)
 			end
 			return
 		end
@@ -118,14 +130,18 @@ function TCRunner:run_testcases(tctbl, compile)
 			return
 		end
 		next_tc = next_tc + 1
-		self:execute_testcase(next_tc - 1, self.rc.exec, self.rc.args, self.running_directory, self.run_next_tc)
+		local new_args = { unpack(self.rc.args) }
+		new_args[#new_args + 1] = tostring(tcnum)
+		self:execute_testcase(next_tc - 1, self.rc.exec, new_args, self.running_directory, self.run_next_tc)
 	end
 
 	local function run_first_testcases()
 		local starting_tc = next_tc
 		next_tc = next_tc + mut
 		for tcnum = starting_tc, math.min(tc_size, starting_tc + mut - 1) do
-			self:execute_testcase(tcnum, self.rc.exec, self.rc.args, self.running_directory, self.run_next_tc)
+			local new_args = { unpack(self.rc.args) }
+			new_args[#new_args + 1] = tostring(tcnum)
+			self:execute_testcase(tcnum, self.rc.exec, new_args, self.running_directory, self.run_next_tc)
 		end
 	end
 

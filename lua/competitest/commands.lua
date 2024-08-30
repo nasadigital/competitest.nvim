@@ -88,6 +88,17 @@ function M.command(args)
 			end
 			M.generate_input(1, passed_args)
 		end,
+		generate_output = function()
+			local n = 1
+			if args[2] then
+				n = tonumber(args[2])
+			end
+			local passed_args = nil
+			if args[3] then
+				passed_args = { unpack(args, 3) }
+			end
+			M.generate_output(n, passed_args)
+		end,
 	}
 
 	local sub = subcommands[args[1]]
@@ -246,11 +257,13 @@ end
 
 M.runners = {} -- runners associated with a buffer
 M.generators = {} -- generator runners associated with a buffer
+M.correct_runners = {}
 
 ---Unload a runner (called on BufUnload)
 function M.remove_runner(bufnr)
 	M.runners[bufnr] = nil
 	M.generators[bufnr] = nil
+	M.correct_runners[bufnr] = nil
 end
 
 ---Start testcases runner
@@ -297,13 +310,17 @@ function M.prepare_generation()
 	generation.prepare_generation()
 end
 
-function M.generate_input(n, command_line_args)
+function M.generate_output(n, command_line_args)
 	local bufnr = api.nvim_get_current_buf()
 	local genfilename = api.nvim_buf_call(bufnr, function()
 		return vim.fn.expand("%:p:h")
 	end) .. "/gen.cpp"
+	local naivefilename = api.nvim_buf_call(bufnr, function()
+		return vim.fn.expand("%:p:h")
+	end) .. "/b.cpp"
+
 	if not M.generators[bufnr] then -- no runner is associated to buffer
-		M.generators[bufnr] = require("competitest.runner"):new(api.nvim_get_current_buf(), genfilename, command_line_args)
+		M.generators[bufnr] = require("competitest.runner"):new(bufnr, genfilename, command_line_args)
 		if not M.generators[bufnr] then -- an error occurred
 			return
 		end
@@ -311,10 +328,108 @@ function M.generate_input(n, command_line_args)
 		api.nvim_command("autocmd BufUnload <buffer=" .. bufnr .. "> lua require('competitest.commands').remove_runner(vim.fn.expand('<abuf>'))")
 	end
 	local r = M.generators[bufnr] -- current runner
-	if true then
-		r:kill_all_processes()
-		r:run_testcases({}, true, n)
+	utils.notify("Generating test cases...", "TRACE")
+	r:kill_all_processes()
+	r:run_testcases({}, true, n)
+
+	local occ = {}
+	for i = 1, n do
+		while r.tcdata[i + 1].status ~= "DONE" do
+			vim.wait(100)
+		end
+		occ[r.tcdata[i + 1].status] = (occ[r.tcdata[i + 1].status] or 0) + 1
 	end
+	utils.notify("Done generating test cases! Generated " .. occ["DONE"] .. " cases.", "TRACE")
+	if occ["DONE"] ~= n then
+		r:set_restore_winid(api.nvim_get_current_win())
+		r:show_ui()
+		return
+	end
+
+	if not M.correct_runners[bufnr] then -- no runner is associated to buffer
+		M.correct_runners[bufnr] = require("competitest.runner"):new(bufnr, naivefilename)
+		if not M.correct_runners[bufnr] then -- an error occurred
+			return
+		end
+		-- remove runner data when buffer is unloaded
+		api.nvim_command("autocmd BufUnload <buffer=" .. bufnr .. "> lua require('competitest.commands').remove_runner(vim.fn.expand('<abuf>'))")
+	end
+	local c = M.correct_runners[bufnr] -- current runner
+	local new_tbl = {}
+	for idx, value in ipairs(r.tcdata) do
+		if type(value.tcnum) == "number" then
+			new_tbl[idx - 1] = value
+			new_tbl[idx - 1].input = table.concat(new_tbl[idx - 1].stdout, "\n")
+		end
+	end
+
+	M.generators[bufnr] = nil
+
+	utils.notify("Generating outputs...", "TRACE")
+	c:kill_all_processes()
+	c:run_testcases(new_tbl, true)
+
+	occ = {}
+	for i = 1, n do
+		local k = 0
+		while c.tcdata[i + 1].running == true or c.tcdata[i + 1].status == "RUNNING" or c.tcdata[i + 1].status == "" do
+			vim.wait(100)
+			k = k + 1
+			if k == 10 then
+				goto print_status
+			end
+		end
+		::print_status::
+		occ[c.tcdata[i + 1].status] = (occ[c.tcdata[i + 1].status] or 0) + 1
+	end
+
+	utils.notify("Done generating outputs! Succesfull testcases: " .. occ["DONE"], "TRACE")
+	if occ["DONE"] ~= n then
+		c:set_restore_winid(api.nvim_get_current_win())
+		c:show_ui()
+		return
+	end
+
+	local generated_testcases = {}
+	for idx, value in ipairs(c.tcdata) do
+		if type(value.tcnum) == "number" then
+			generated_testcases[idx - 1] = value
+			generated_testcases[idx - 1].input = table.concat(generated_testcases[idx - 1].stdin, "\n")
+			generated_testcases[idx - 1].output = table.concat(generated_testcases[idx - 1].stdout, "\n")
+		end
+	end
+
+	if not M.runners[bufnr] then -- no runner is associated to buffer
+		M.runners[bufnr] = require("competitest.runner"):new(bufnr)
+		if not M.runners[bufnr] then -- an error occurred
+			return
+		end
+		-- remove runner data when buffer is unloaded
+		api.nvim_command("autocmd BufUnload <buffer=" .. bufnr .. "> lua require('competitest.commands').remove_runner(vim.fn.expand('<abuf>'))")
+	end
+	local my_runner = M.runners[bufnr] -- current runner
+	my_runner:kill_all_processes()
+	my_runner:run_testcases(generated_testcases, true)
+	my_runner:set_restore_winid(api.nvim_get_current_win())
+	my_runner:show_ui()
+end
+
+function M.generate_input(n, command_line_args)
+	local bufnr = api.nvim_get_current_buf()
+	local genfilename = api.nvim_buf_call(bufnr, function()
+		return vim.fn.expand("%:p:h")
+	end) .. "/gen.cpp"
+	if not M.generators[bufnr] then -- no runner is associated to buffer
+		M.generators[bufnr] = require("competitest.runner"):new(bufnr, genfilename, command_line_args)
+		if not M.generators[bufnr] then -- an error occurred
+			return
+		end
+		-- remove runner data when buffer is unloaded
+		api.nvim_command("autocmd BufUnload <buffer=" .. bufnr .. "> lua require('competitest.commands').remove_runner(vim.fn.expand('<abuf>'))")
+	end
+	local r = M.generators[bufnr] -- current runner
+	r:kill_all_processes()
+	r:run_testcases({}, true, n)
 	r:set_restore_winid(api.nvim_get_current_win())
 	r:show_ui()
 	while r.tcdata[2].status ~= "DONE" do

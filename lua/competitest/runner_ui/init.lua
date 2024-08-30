@@ -151,6 +151,14 @@ function RunnerUI:show_ui()
 			end, { noremap = true })
 		end
 
+		-- generate new test case file
+		for _, map in ipairs(self.runner.config.runner_ui.mappings.add_testcase) do
+			self.windows.tc:map("n", map, function()
+				local tcindex = get_testcase_index_by_line()
+				self.runner:add_testcase(tcindex)
+			end, { noremap = true })
+		end
+
 		-- run again all testcases
 		for _, map in ipairs(self.runner.config.runner_ui.mappings.run_all_again) do
 			self.windows.tc:map("n", map, function()

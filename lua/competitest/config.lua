@@ -48,6 +48,7 @@ local default_config = {
 			view_stderr = { "e", "E" },
 			toggle_diff = { "d", "D" },
 			close = { "q", "Q" },
+			add_testcase = { "p", "P" },
 		},
 		viewer = { -- viewer window, to view in detail a stream (input, expected output, stdout or stderr)
 			width = 0.5, -- from 0 to 1

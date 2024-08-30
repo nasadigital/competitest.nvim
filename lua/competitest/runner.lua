@@ -74,7 +74,7 @@ function TCRunner:run_testcases(tctbl, compile, generated_testcases)
 
 		if generated_testcases then
 			for i = 1, generated_testcases do
-				table.insert(self.tcdata, { stdin = {}, expout = nil, tcnum = "Gen " .. i })
+				table.insert(self.tcdata, { stdin = {}, expout = nil, tcnum = i })
 			end
 		end
 
@@ -131,7 +131,7 @@ function TCRunner:run_testcases(tctbl, compile, generated_testcases)
 		end
 		next_tc = next_tc + 1
 		local new_args = { unpack(self.rc.args) }
-		new_args[#new_args + 1] = tostring(tcnum)
+		new_args[#new_args + 1] = tostring(next_tc - 1)
 		self:execute_testcase(next_tc - 1, self.rc.exec, new_args, self.running_directory, self.run_next_tc)
 	end
 
@@ -175,7 +175,7 @@ function TCRunner:execute_testcase(tcindex, exec, args, dir, callback)
 	}
 	local tc = self.tcdata[tcindex]
 
-	utils.create_directory(dir)
+	-- utils.create_directory(dir)
 	process.handle, process.pid = luv.spawn(process.exec, {
 		args = process.args,
 		cwd = dir,
@@ -218,7 +218,7 @@ function TCRunner:execute_testcase(tcindex, exec, args, dir, callback)
 		end
 	end)
 	if not process.handle then
-		utils.notify("TCRunner:execute_testcase: failed to spawn process using '" .. process.exec .. "' (" .. process.pid .. ").")
+		-- utils.notify("TCRunner:execute_testcase: failed to spawn process using '" .. process.exec .. "' (" .. process.pid .. ").")
 		tc.status = "FAILED"
 		tc.hlgroup = "CompetiTestWarning"
 		tc.time = -1
@@ -362,6 +362,17 @@ function TCRunner:resize_ui()
 	if self.ui then
 		self.ui:resize_ui()
 	end
+end
+
+function TCRunner:add_testcase(idx)
+	local testcases = require("competitest.testcases")
+	local tctbl = testcases.buf_get_testcases(self.bufnr)
+	local tcnum = 0
+	while tctbl[tcnum] do
+		tcnum = tcnum + 1
+	end
+	testcases.io_files.buf_write_pair(self.bufnr, tcnum, table.concat(self.tcdata[idx].stdin, "\n"), table.concat(self.tcdata[idx].stdout, "\n"))
+	utils.notify("Added testcase " .. (idx - 1), "TRACE")
 end
 
 return TCRunner

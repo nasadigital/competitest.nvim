@@ -157,6 +157,8 @@ end
 ---@param task table: table with all task details
 ---@param cfg table: table containing CompetiTest configuration
 function M.store_problem_config(filepath, confirm_overwriting, task, cfg)
+	local open_line = 0
+
 	if confirm_overwriting and utils.does_file_exist(filepath) then
 		local choice = vim.fn.confirm('Do you want to overwrite "' .. filepath .. '"?', "&Yes\n&No")
 		if choice == 2 then
@@ -193,6 +195,9 @@ function M.store_problem_config(filepath, confirm_overwriting, task, cfg)
 			utils.create_directory(file_directory)
 			luv.fs_copyfile(template_file, filepath)
 		end
+		if cfg.template_fileline then
+			open_line = cfg.template_fileline
+		end
 	else
 		utils.write_string_on_file(filepath, "")
 	end
@@ -212,6 +217,7 @@ function M.store_problem_config(filepath, confirm_overwriting, task, cfg)
 	else
 		testcases.io_files.write_eval_format_string(tcdir, tctbl, filepath, cfg.testcases_input_file_format, cfg.testcases_output_file_format)
 	end
+	return open_line
 end
 
 return M

@@ -371,7 +371,7 @@ function TCRunner:add_testcase(idx)
 	while tctbl[tcnum] do
 		tcnum = tcnum + 1
 	end
-	testcases.io_files.buf_write_pair(self.bufnr, tcnum, table.concat(self.tcdata[idx].stdin, "\n"), table.concat(self.tcdata[idx].stdout, "\n"))
+	testcases.io_files.buf_write_pair(self.bufnr, tcnum, table.concat(self.tcdata[idx].stdin, "\n"), table.concat(self.tcdata[idx].expout, "\n"))
 	utils.notify("Added testcase " .. (idx - 1), "TRACE")
 end
 

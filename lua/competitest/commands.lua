@@ -349,6 +349,7 @@ function M.generate_output(n, command_line_args)
 	if not M.correct_runners[bufnr] then -- no runner is associated to buffer
 		M.correct_runners[bufnr] = require("competitest.runner"):new(bufnr, naivefilename)
 		if not M.correct_runners[bufnr] then -- an error occurred
+			utils.notify("NO Correct runner...")
 			return
 		end
 		-- remove runner data when buffer is unloaded
@@ -369,7 +370,13 @@ function M.generate_output(n, command_line_args)
 	c:kill_all_processes()
 	c:run_testcases(new_tbl, true)
 
+	-- wait for compilation to finish
+	while c.tcdata[1].exit_code == nil do
+		vim.wait(100)
+	end
+
 	occ = {}
+	occ["DONE"] = 0
 	for i = 1, n do
 		local k = 0
 		while c.tcdata[i + 1].running == true or c.tcdata[i + 1].status == "RUNNING" or c.tcdata[i + 1].status == "" do
@@ -477,9 +484,9 @@ function M.receive(mode)
 				setup.floating_border,
 				not setup.received_problems_prompt_path,
 				function(filepath)
-					receive.store_problem_config(filepath, true, tasks[1], setup)
+					local line = receive.store_problem_config(filepath, true, tasks[1], setup)
 					if setup.open_received_problems then
-						api.nvim_command("edit " .. filepath)
+						api.nvim_command("edit +" .. tostring(line) .. " " .. filepath)
 					end
 				end
 			)
@@ -501,11 +508,12 @@ function M.receive(mode)
 						cfg.floating_border,
 						not cfg.received_contests_prompt_extension,
 						function(file_extension)
-							for _, task in ipairs(tasks) do
+							for i = #tasks, 1, -1 do
+								local task = tasks[i]
 								local filepath = directory .. "/" .. eval_path(cfg.received_contests_problems_path, task, file_extension)
-								receive.store_problem_config(filepath, true, task, cfg)
+								local line = receive.store_problem_config(filepath, true, task, cfg)
 								if cfg.open_received_contests then
-									api.nvim_command("edit " .. filepath)
+									api.nvim_command("edit +" .. tostring(line) .. " " .. filepath)
 								end
 							end
 						end

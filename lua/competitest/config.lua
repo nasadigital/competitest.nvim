@@ -134,6 +134,7 @@ local default_config = {
 	companion_port = 27121, -- competitive companion port
 	receive_print_message = true,
 	template_file = false,
+	template_fileline = 0,
 	evaluate_template_modifiers = false,
 	date_format = "%c",
 	received_files_extension = "cpp",

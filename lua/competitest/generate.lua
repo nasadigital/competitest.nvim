@@ -6,7 +6,7 @@ local M = {}
 
 function M.prepare_generation()
 	local bufnr = api.nvim_get_current_buf()
-	local cfg = config.load_buffer_config(bufnr)
+	local cfg = config.get_buffer_config(bufnr)
 	if type(cfg.generation_template_directory) ~= "string" then
 		utils.notify("prepare_generation: generation_template_directory not set, nothing to prepare.", "WARN")
 		return

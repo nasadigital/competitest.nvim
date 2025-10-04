@@ -372,8 +372,12 @@ function RunnerUI:update_ui()
 
 			local lines = {}
 			local hlregions = {}
+			local correct_testcases = 0
 
 			for tcindex, data in ipairs(self.runner.tcdata) do
+				if data.status == "CORRECT" or data.status == "DONE" then
+					correct_testcases = correct_testcases + 1
+				end
 				local l = { header = "TC " .. data.tcnum, status = data.status, time = "" }
 				if type(data.tcnum) == "string" then
 					l.header = data.tcnum
@@ -386,6 +390,15 @@ function RunnerUI:update_ui()
 				table.insert(lines, l)
 				table.insert(hlregions, hl)
 			end
+
+			local title = "Testcases"
+			if #self.runner.tcdata > 0 then
+				title = string.format("Testcases (%d/%d)", correct_testcases, #self.runner.tcdata)
+			end
+			if self.windows.tc.border then
+				self.windows.tc.border:set_text("top", " " .. title .. " ", "center")
+			end
+			api.nvim_buf_set_var(self.windows.tc.bufnr, "competitest_title", title)
 
 			-- render lines
 			local buffer_lines = {}

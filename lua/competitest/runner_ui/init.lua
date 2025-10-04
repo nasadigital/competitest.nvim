@@ -155,7 +155,11 @@ function RunnerUI:show_ui()
 		for _, map in ipairs(self.runner.config.runner_ui.mappings.add_testcase) do
 			self.windows.tc:map("n", map, function()
 				local tcindex = get_testcase_index_by_line()
-				self.runner:add_testcase(tcindex)
+				local tc_data = self.runner.tcdata[tcindex]
+				if tc_data and tc_data.stdin then
+					local input_str = table.concat(tc_data.stdin, "\n")
+					require("competitest.commands").add_testcase_from_input(self.runner.bufnr, input_str)
+				end
 			end, { noremap = true })
 		end
 

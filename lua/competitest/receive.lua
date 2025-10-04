@@ -157,7 +157,7 @@ end
 ---@param task table: table with all task details
 ---@param cfg table: table containing CompetiTest configuration
 function M.store_problem_config(filepath, confirm_overwriting, task, cfg)
-	local open_line = 0
+	local open_line = 1
 
 	if confirm_overwriting and utils.does_file_exist(filepath) then
 		local choice = vim.fn.confirm('Do you want to overwrite "' .. filepath .. '"?', "&Yes\n&No")

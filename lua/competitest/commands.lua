@@ -484,7 +484,7 @@ function M.receive(mode)
 				setup.floating_border,
 				not setup.received_problems_prompt_path,
 				function(filepath)
-					local line = receive.store_problem_config(filepath, true, tasks[1], setup)
+					local line = receive.store_problem_config(filepath, true, tasks[1], setup) or 1
 					if setup.open_received_problems then
 						api.nvim_command("edit +" .. tostring(line) .. " " .. filepath)
 					end
@@ -511,9 +511,10 @@ function M.receive(mode)
 							for i = #tasks, 1, -1 do
 								local task = tasks[i]
 								local filepath = directory .. "/" .. eval_path(cfg.received_contests_problems_path, task, file_extension)
-								local line = receive.store_problem_config(filepath, true, task, cfg)
+								local line = receive.store_problem_config(filepath, true, task, cfg) or 1
 								if cfg.open_received_contests then
-									api.nvim_command("edit +" .. tostring(line) .. " " .. filepath)
+									local escaped_filepath = vim.fn.fnameescape(filepath)
+									api.nvim_command("edit +" .. tostring(line) .. " " .. escaped_filepath)
 								end
 							end
 						end

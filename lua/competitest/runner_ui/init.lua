@@ -158,7 +158,11 @@ function RunnerUI:show_ui()
 				local tc_data = self.runner.tcdata[tcindex]
 				if tc_data and tc_data.stdin then
 					local input_str = table.concat(tc_data.stdin, "\n")
-					require("competitest.commands").add_testcase_from_input(self.runner.bufnr, input_str)
+					local output_str = ""
+					if tc_data.expout then
+						output_str = table.concat(tc_data.expout, "\n")
+					end
+					require("competitest.commands").add_testcase_from_input(self.runner.bufnr, input_str, output_str)
 				end
 			end, { noremap = true })
 		end

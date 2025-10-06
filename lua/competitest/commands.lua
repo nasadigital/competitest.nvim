@@ -259,7 +259,7 @@ function M.convert_testcases(mode)
 	end
 end
 
-function M.add_testcase_from_input(bufnr, input)
+function M.add_testcase_from_input(bufnr, input, output)
 	config.load_buffer_config(bufnr) -- reload buffer configuration since it may have been updated in the meantime
 	local tctbl = testcases.buf_get_testcases(bufnr)
 
@@ -268,7 +268,7 @@ function M.add_testcase_from_input(bufnr, input)
 		tcnum = tcnum + 1
 	end
 
-	tctbl[tcnum] = { input = input, output = "" }
+	tctbl[tcnum] = { input = input, output = output or "" }
 
 	testcases.buf_write_testcases(bufnr, tctbl, config.get_buffer_config(bufnr).testcases_use_single_file)
 	utils.notify("Added new testcase " .. tcnum, "INFO")

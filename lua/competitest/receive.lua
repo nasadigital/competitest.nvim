@@ -217,6 +217,13 @@ function M.store_problem_config(filepath, confirm_overwriting, task, cfg)
 	else
 		testcases.io_files.write_eval_format_string(tcdir, tctbl, filepath, cfg.testcases_input_file_format, cfg.testcases_output_file_format)
 	end
+	
+	-- Store the problem statement if provided and enabled in configuration
+	if task.statement and cfg.save_problem_statement then
+		local statement_filepath = file_directory .. "/statement.txt"
+		utils.write_string_on_file(statement_filepath, task.statement)
+	end
+	
 	return open_line
 end
 

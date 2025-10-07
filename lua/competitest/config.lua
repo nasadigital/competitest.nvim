@@ -150,6 +150,7 @@ local default_config = {
 	save_problem_statement = true,
 
 	generation_template_directory = false,
+	custom_generation_command = false, -- Command to run custom generation, e.g. { "/path/to/venv/bin/python", "cp_support.py", "generate", "$(PROBLEM_DIR)" }
 }
 
 ---Return an updated configuration table with given options

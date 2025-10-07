@@ -473,26 +473,72 @@ function M.generate_output(n, command_line_args)
 			-- Run the naive solution on the generated inputs to produce expected outputs
 			c:run_testcases(new_tbl, true)
 
-			-- Poll for output generation completion
+			-- Poll for compilation and output generation
 			local output_start_time = vim.loop.now()
 
 			local function poll_output_generation()
+				-- First check compilation status of naive solution (always tcdata[1])
+				local comp_tc = c.tcdata[1]
+				if comp_tc then
+					local comp_status = comp_tc.status
+					-- Check for early termination: if compilation failed, stop immediately
+					if comp_status ~= "DONE" and comp_status ~= "" and comp_status ~= "RUNNING" then
+						utils.notify("Naive solution compilation failed: " .. comp_status, "WARN")
+						c:set_restore_winid(api.nvim_get_current_win())
+						c:show_ui()
+						return
+					end
+				else
+					-- Compilation data missing, treat as error
+					utils.notify("Naive solution compilation data missing", "WARN")
+					c:set_restore_winid(api.nvim_get_current_win())
+					c:show_ui()
+					return
+				end
+
+				-- Check status of output generation
 				local all_outputs_done = true
 				local output_occ = {}
+				local has_errors = false
 
 				for i = 1, n do
 					if i + 1 <= #c.tcdata then
 						local tc = c.tcdata[i + 1]
-						local status = tc.status
-						if tc.running == true or status == "RUNNING" or status == "" then
-							all_outputs_done = false
+						if not tc then
+							-- Test case data missing
+							has_errors = true
+							output_occ["FAILED"] = (output_occ["FAILED"] or 0) + 1
+						else
+							local status = tc.status
+							-- For output generation, check if finished but not in successful state
+							if
+								status ~= "DONE"
+								and status ~= "TIMEOUT"
+								and status ~= "FAILED"
+								and status ~= "KILLED"
+								and not string.find(status, "RET ")
+								and not string.find(status, "SIG ")
+								and status ~= ""
+								and status ~= "RUNNING"
+							then
+								has_errors = true
+							end
+
+							if tc.running == true or status == "RUNNING" or status == "" then
+								all_outputs_done = false
+							else
+								-- If it's not DONE, count as error for generator
+								if status ~= "DONE" then
+									has_errors = true
+								end
+								output_occ[status] = (output_occ[status] or 0) + 1
+							end
 						end
-						output_occ[status] = (output_occ[status] or 0) + 1
 					end
 				end
 
 				local output_elapsed = vim.loop.now() - output_start_time
-				if all_outputs_done or output_elapsed > OUTPUT_GENERATION_TIMEOUT then
+				if all_outputs_done or output_elapsed > OUTPUT_GENERATION_TIMEOUT or has_errors then
 					utils.notify("Done generating outputs! Successful testcases: " .. (output_occ["DONE"] or 0), "TRACE")
 
 					if (output_occ["DONE"] or 0) ~= n then

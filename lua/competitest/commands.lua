@@ -361,83 +361,158 @@ function M.generate_output(n, command_line_args)
 	r:kill_all_processes()
 	r:run_testcases({}, true, n)
 
-	local occ = {}
-	for i = 1, n do
-		while r.tcdata[i + 1].status ~= "DONE" do
-			vim.wait(100)
-		end
-		occ[r.tcdata[i + 1].status] = (occ[r.tcdata[i + 1].status] or 0) + 1
-	end
-	utils.notify("Done generating test cases! Generated " .. (occ["DONE"] or 0) .. " cases.", "TRACE")
-	if (occ["DONE"] or 0) ~= n then
-		r:set_restore_winid(api.nvim_get_current_win())
-		r:show_ui()
-		return
-	end
+	-- Use a non-blocking polling approach with timeout for the first stage
+	local start_time = vim.loop.now()
+	local timeout_ms = 10000 -- 10 seconds timeout for input generation
+	local poll_interval = 100 -- Check every 100ms
 
-	local c = get_runner(M.correct_runners, bufnr, naivefilename)
-	if not c then
-		utils.notify("NO Correct runner...")
-		return
-	end
-	local new_tbl = {}
-	for idx, value in ipairs(r.tcdata) do
-		if type(value.tcnum) == "number" then
-			new_tbl[idx - 1] = value
-			new_tbl[idx - 1].input = table.concat(new_tbl[idx - 1].stdout, "\n")
-		end
-	end
+	local function poll_input_generation()
+		local all_done = true
+		local occ = {}
 
-	M.generators[bufnr] = nil
-
-	utils.notify("Generating outputs...", "TRACE")
-	c:kill_all_processes()
-	c:run_testcases(new_tbl, true)
-
-	-- wait for compilation to finish
-	while c.tcdata[1].exit_code == nil do
-		vim.wait(100)
-	end
-
-	occ = {}
-	occ["DONE"] = 0
-	for i = 1, n do
-		local k = 0
-		while c.tcdata[i + 1].running == true or c.tcdata[i + 1].status == "RUNNING" or c.tcdata[i + 1].status == "" do
-			if k >= 10 then -- timeout after 1 second
-				break
+		for i = 1, n do
+			local status = r.tcdata[i + 1].status
+			if
+				status ~= "DONE"
+				and status ~= "TIMEOUT"
+				and status ~= "FAILED"
+				and status ~= "KILLED"
+				and not string.find(status, "RET ")
+				and not string.find(status, "SIG ")
+			then
+				all_done = false
 			end
-			vim.wait(100)
-			k = k + 1
+			occ[status] = (occ[status] or 0) + 1
 		end
-		local status = c.tcdata[i + 1].status
-		occ[status] = (occ[status] or 0) + 1
-	end
 
-	utils.notify("Done generating outputs! Succesfull testcases: " .. occ["DONE"], "TRACE")
-	if occ["DONE"] ~= n then
-		c:set_restore_winid(api.nvim_get_current_win())
-		c:show_ui()
-		return
-	end
+		local elapsed = vim.loop.now() - start_time
+		if all_done or elapsed > timeout_ms then
+			-- Input generation completed or timed out
+			utils.notify("Done generating test cases! Generated " .. (occ["DONE"] or 0) .. " cases.", "TRACE")
 
-	local generated_testcases = {}
-	for idx, value in ipairs(c.tcdata) do
-		if type(value.tcnum) == "number" then
-			generated_testcases[idx - 1] = value
-			generated_testcases[idx - 1].input = table.concat(generated_testcases[idx - 1].stdin, "\n")
-			generated_testcases[idx - 1].output = table.concat(generated_testcases[idx - 1].stdout, "\n")
+			if (occ["DONE"] or 0) ~= n then
+				r:set_restore_winid(api.nvim_get_current_win())
+				r:show_ui()
+
+				-- Notify user about failures if any
+				local failed_count = n - (occ["DONE"] or 0)
+				utils.notify("Warning: " .. failed_count .. " out of " .. n .. " test case(s) failed to generate.", "WARN")
+				return
+			end
+
+			-- Continue to generate outputs
+			local c = get_runner(M.correct_runners, bufnr, naivefilename)
+			if not c then
+				utils.notify("NO Correct runner...", "WARN")
+				return
+			end
+			local new_tbl = {}
+			for idx, value in ipairs(r.tcdata) do
+				if type(value.tcnum) == "number" then
+					new_tbl[idx - 1] = value
+					new_tbl[idx - 1].input = table.concat(new_tbl[idx - 1].stdout, "\n")
+				end
+			end
+
+			M.generators[bufnr] = nil
+
+			utils.notify("Generating outputs...", "TRACE")
+			c:kill_all_processes()
+			c:run_testcases(new_tbl, true)
+
+			-- Wait for compilation to finish with non-blocking approach
+			local compile_start_time = vim.loop.now()
+			local compile_timeout_ms = 4000 -- 4 seconds for compilation
+
+			local function poll_compilation()
+				if c.tcdata[1] and c.tcdata[1].exit_code ~= nil then
+					-- Compilation finished, start output generation
+					local output_start_time = vim.loop.now()
+					local output_timeout_ms = 30000 -- 30 seconds for output generation
+
+					local function poll_output_generation()
+						local all_outputs_done = true
+						local output_occ = {}
+
+						for i = 1, n do
+							if i + 1 <= #c.tcdata then
+								local tc = c.tcdata[i + 1]
+								local status = tc.status
+								if tc.running == true or status == "RUNNING" or status == "" then
+									all_outputs_done = false
+								end
+								output_occ[status] = (output_occ[status] or 0) + 1
+							end
+						end
+
+						local output_elapsed = vim.loop.now() - output_start_time
+						if all_outputs_done or output_elapsed > output_timeout_ms then
+							utils.notify("Done generating outputs! Successful testcases: " .. (output_occ["DONE"] or 0), "TRACE")
+
+							if (output_occ["DONE"] or 0) ~= n then
+								c:set_restore_winid(api.nvim_get_current_win())
+								c:show_ui()
+
+								-- Notify user about failures if any
+								local failed_count = n - (output_occ["DONE"] or 0)
+								utils.notify("Warning: " .. failed_count .. " out of " .. n .. " output(s) failed to generate.", "WARN")
+								return
+							end
+
+							-- Process the generated testcases
+							local generated_testcases = {}
+							for idx, value in ipairs(c.tcdata) do
+								if type(value.tcnum) == "number" then
+									generated_testcases[idx - 1] = value
+									generated_testcases[idx - 1].input = table.concat(generated_testcases[idx - 1].stdin, "\n")
+									generated_testcases[idx - 1].output = table.concat(generated_testcases[idx - 1].stdout, "\n")
+								end
+							end
+
+							local my_runner = get_runner(M.runners, bufnr)
+							if not my_runner then
+								return
+							end
+							my_runner:kill_all_processes()
+							my_runner:run_testcases(generated_testcases, true)
+							my_runner:set_restore_winid(api.nvim_get_current_win())
+							my_runner:show_ui()
+						else
+							-- Schedule next poll for output generation
+							vim.schedule(function()
+								vim.defer_fn(poll_output_generation, poll_interval)
+							end)
+						end
+					end
+
+					-- Start polling for output generation
+					poll_output_generation()
+				else
+					local elapsed_comp = vim.loop.now() - compile_start_time
+					if elapsed_comp > compile_timeout_ms then
+						utils.notify("Compilation for output generation timed out!", "WARN")
+						return
+					end
+
+					-- Schedule next compilation check
+					vim.schedule(function()
+						vim.defer_fn(poll_compilation, poll_interval)
+					end)
+				end
+			end
+
+			-- Start polling for compilation
+			poll_compilation()
+		else
+			-- Schedule next poll
+			vim.schedule(function()
+				vim.defer_fn(poll_input_generation, poll_interval)
+			end)
 		end
 	end
 
-	local my_runner = get_runner(M.runners, bufnr)
-	if not my_runner then
-		return
-	end
-	my_runner:kill_all_processes()
-	my_runner:run_testcases(generated_testcases, true)
-	my_runner:set_restore_winid(api.nvim_get_current_win())
-	my_runner:show_ui()
+	-- Start the polling
+	poll_input_generation()
 end
 
 function M.generate_input(n, command_line_args)
@@ -453,38 +528,74 @@ function M.generate_input(n, command_line_args)
 	r:kill_all_processes()
 	r:run_testcases({}, true, n)
 
-	local occ = {}
-	for i = 1, n do
-		while r.tcdata[i + 1].status ~= "DONE" do
-			vim.wait(100)
+	-- Use a non-blocking polling approach with timeout
+	local start_time = vim.loop.now()
+	local timeout_ms = 10000 -- 3 seconds timeout
+	local poll_interval = 100 -- Check every 100ms
+
+	local function poll_generation()
+		local all_done = true
+		local occ = {}
+
+		for i = 1, n do
+			local status = r.tcdata[i + 1].status
+			if
+				status ~= "DONE"
+				and status ~= "TIMEOUT"
+				and status ~= "FAILED"
+				and status ~= "KILLED"
+				and not string.find(status, "RET ")
+				and not string.find(status, "SIG ")
+			then
+				all_done = false
+			end
+			occ[status] = (occ[status] or 0) + 1
 		end
-		occ[r.tcdata[i + 1].status] = (occ[r.tcdata[i + 1].status] or 0) + 1
-	end
-	utils.notify("Done generating inputs! Generated " .. (occ["DONE"] or 0) .. " cases.", "TRACE")
-	if (occ["DONE"] or 0) ~= n then
-		r:set_restore_winid(api.nvim_get_current_win())
-		r:show_ui()
-		return
+
+		local elapsed = vim.loop.now() - start_time
+		if all_done or elapsed > timeout_ms then
+			-- Generation completed or timed out
+			utils.notify("Done generating inputs! Generated " .. (occ["DONE"] or 0) .. " cases.", "TRACE")
+
+			if (occ["DONE"] or 0) ~= n then
+				r:set_restore_winid(api.nvim_get_current_win())
+				r:show_ui()
+
+				-- Notify user about failures if any
+				local failed_count = n - (occ["DONE"] or 0)
+				utils.notify("Warning: " .. failed_count .. " out of " .. n .. " test case(s) failed to generate.", "WARN")
+				return
+			end
+
+			-- Process the generated testcases
+			local generated_testcases = {}
+			for i = 1, n do
+				generated_testcases["TC " .. i] = {
+					input = table.concat(r.tcdata[i + 1].stdout, "\n"),
+					output = "",
+				}
+			end
+
+			M.generators[bufnr] = nil
+
+			local my_runner = get_runner(M.runners, bufnr)
+			if not my_runner then
+				return
+			end
+			my_runner:kill_all_processes()
+			my_runner:run_testcases(generated_testcases, true)
+			my_runner:set_restore_winid(api.nvim_get_current_win())
+			my_runner:show_ui()
+		else
+			-- Schedule next poll
+			vim.schedule(function()
+				vim.defer_fn(poll_generation, poll_interval)
+			end)
+		end
 	end
 
-	local generated_testcases = {}
-	for i = 1, n do
-		generated_testcases["TC " .. i] = {
-			input = table.concat(r.tcdata[i + 1].stdout, "\n"),
-			output = "",
-		}
-	end
-
-	M.generators[bufnr] = nil
-
-	local my_runner = get_runner(M.runners, bufnr)
-	if not my_runner then
-		return
-	end
-	my_runner:kill_all_processes()
-	my_runner:run_testcases(generated_testcases, true)
-	my_runner:set_restore_winid(api.nvim_get_current_win())
-	my_runner:show_ui()
+	-- Start the polling
+	poll_generation()
 end
 
 ---Receive testcases, problems or contests from Competitive Companion

@@ -3,6 +3,13 @@ local config = require("competitest.config")
 local testcases = require("competitest.testcases")
 local utils = require("competitest.utils")
 local widgets = require("competitest.widgets")
+
+-- Timeout constants (in milliseconds)
+local INPUT_GENERATION_TIMEOUT = 30000 -- 30 seconds for input generation
+local OUTPUT_GENERATION_TIMEOUT = 30000 -- 30 seconds for output generation
+local COMPILATION_TIMEOUT = 10000 -- 10 seconds for compilation
+local POLL_INTERVAL = 100 -- Poll every 100ms
+
 local M = {}
 
 ---Handle CompetiTest subcommands
@@ -361,32 +368,75 @@ function M.generate_output(n, command_line_args)
 	r:kill_all_processes()
 	r:run_testcases({}, true, n)
 
-	-- Use a non-blocking polling approach with timeout for the first stage
+	-- Use a non-blocking polling approach with timeout and early termination for the first stage
 	local start_time = vim.loop.now()
-	local timeout_ms = 10000 -- 10 seconds timeout for input generation
-	local poll_interval = 100 -- Check every 100ms
 
 	local function poll_input_generation()
 		local all_done = true
+		local has_errors = false
 		local occ = {}
 
-		for i = 1, n do
-			local status = r.tcdata[i + 1].status
-			if
-				status ~= "DONE"
-				and status ~= "TIMEOUT"
-				and status ~= "FAILED"
-				and status ~= "KILLED"
-				and not string.find(status, "RET ")
-				and not string.find(status, "SIG ")
-			then
+		-- First, check compilation status (always tcdata[1])
+		local comp_tc = r.tcdata[1]
+		if comp_tc then
+			local comp_status = comp_tc.status
+			-- Check for early termination: if compilation failed, stop immediately
+			if comp_status ~= "DONE" and comp_status ~= "" and comp_status ~= "RUNNING" then
+				utils.notify("Compilation failed: " .. comp_status, "WARN")
+				r:set_restore_winid(api.nvim_get_current_win())
+				r:show_ui()
+				return
+			end
+			-- If compilation is still running, not all done yet
+			if comp_status == "RUNNING" or comp_status == "" then
 				all_done = false
 			end
-			occ[status] = (occ[status] or 0) + 1
+		else
+			-- Compilation data missing, treat as error
+			utils.notify("Compilation data missing", "WARN")
+			r:set_restore_winid(api.nvim_get_current_win())
+			r:show_ui()
+			return
+		end
+
+		-- Then check generated test cases (tcdata[2] to tcdata[n+1])
+		for i = 1, n do
+			local tc = r.tcdata[i + 1]
+			if not tc then
+				-- If test case data is missing, treat as failure
+				has_errors = true
+				occ["FAILED"] = (occ["FAILED"] or 0) + 1
+			else
+				local status = tc.status
+				-- For test cases, check if finished but not in successful state
+				if
+					status ~= "DONE"
+					and status ~= "TIMEOUT"
+					and status ~= "FAILED"
+					and status ~= "KILLED"
+					and not string.find(status, "RET ")
+					and not string.find(status, "SIG ")
+					and status ~= ""
+					and status ~= "RUNNING"
+				then
+					has_errors = true
+				end
+
+				-- Check if the test case is still running or not yet started
+				if status ~= "" and status ~= "RUNNING" then -- Test case is finished
+					-- If it's not DONE, CORRECT, WRONG or other valid states, count as error for generator
+					if status ~= "DONE" and status ~= "CORRECT" and status ~= "WRONG" then
+						has_errors = true
+					end
+					occ[status] = (occ[status] or 0) + 1
+				else
+					all_done = false
+				end
+			end
 		end
 
 		local elapsed = vim.loop.now() - start_time
-		if all_done or elapsed > timeout_ms then
+		if all_done or elapsed > INPUT_GENERATION_TIMEOUT or has_errors then
 			-- Input generation completed or timed out
 			utils.notify("Done generating test cases! Generated " .. (occ["DONE"] or 0) .. " cases.", "TRACE")
 
@@ -422,13 +472,11 @@ function M.generate_output(n, command_line_args)
 
 			-- Wait for compilation to finish with non-blocking approach
 			local compile_start_time = vim.loop.now()
-			local compile_timeout_ms = 4000 -- 4 seconds for compilation
 
 			local function poll_compilation()
 				if c.tcdata[1] and c.tcdata[1].exit_code ~= nil then
 					-- Compilation finished, start output generation
 					local output_start_time = vim.loop.now()
-					local output_timeout_ms = 30000 -- 30 seconds for output generation
 
 					local function poll_output_generation()
 						local all_outputs_done = true
@@ -446,7 +494,7 @@ function M.generate_output(n, command_line_args)
 						end
 
 						local output_elapsed = vim.loop.now() - output_start_time
-						if all_outputs_done or output_elapsed > output_timeout_ms then
+						if all_outputs_done or output_elapsed > OUTPUT_GENERATION_TIMEOUT then
 							utils.notify("Done generating outputs! Successful testcases: " .. (output_occ["DONE"] or 0), "TRACE")
 
 							if (output_occ["DONE"] or 0) ~= n then
@@ -480,7 +528,7 @@ function M.generate_output(n, command_line_args)
 						else
 							-- Schedule next poll for output generation
 							vim.schedule(function()
-								vim.defer_fn(poll_output_generation, poll_interval)
+								vim.defer_fn(poll_output_generation, POLL_INTERVAL)
 							end)
 						end
 					end
@@ -489,14 +537,14 @@ function M.generate_output(n, command_line_args)
 					poll_output_generation()
 				else
 					local elapsed_comp = vim.loop.now() - compile_start_time
-					if elapsed_comp > compile_timeout_ms then
+					if elapsed_comp > COMPILATION_TIMEOUT then
 						utils.notify("Compilation for output generation timed out!", "WARN")
 						return
 					end
 
 					-- Schedule next compilation check
 					vim.schedule(function()
-						vim.defer_fn(poll_compilation, poll_interval)
+						vim.defer_fn(poll_compilation, POLL_INTERVAL)
 					end)
 				end
 			end
@@ -506,7 +554,7 @@ function M.generate_output(n, command_line_args)
 		else
 			-- Schedule next poll
 			vim.schedule(function()
-				vim.defer_fn(poll_input_generation, poll_interval)
+				vim.defer_fn(poll_input_generation, POLL_INTERVAL)
 			end)
 		end
 	end
@@ -528,32 +576,75 @@ function M.generate_input(n, command_line_args)
 	r:kill_all_processes()
 	r:run_testcases({}, true, n)
 
-	-- Use a non-blocking polling approach with timeout
+	-- Use a non-blocking polling approach with timeout and early termination for compilation
 	local start_time = vim.loop.now()
-	local timeout_ms = 10000 -- 3 seconds timeout
-	local poll_interval = 100 -- Check every 100ms
 
 	local function poll_generation()
 		local all_done = true
+		local has_errors = false
 		local occ = {}
 
-		for i = 1, n do
-			local status = r.tcdata[i + 1].status
-			if
-				status ~= "DONE"
-				and status ~= "TIMEOUT"
-				and status ~= "FAILED"
-				and status ~= "KILLED"
-				and not string.find(status, "RET ")
-				and not string.find(status, "SIG ")
-			then
+		-- First, check compilation status (always tcdata[1])
+		local comp_tc = r.tcdata[1]
+		if comp_tc then
+			local comp_status = comp_tc.status
+			-- Check for early termination: if compilation failed, stop immediately
+			if comp_status ~= "DONE" and comp_status ~= "" and comp_status ~= "RUNNING" then
+				utils.notify("Compilation failed: " .. comp_status, "WARN")
+				r:set_restore_winid(api.nvim_get_current_win())
+				r:show_ui()
+				return
+			end
+			-- If compilation is still running, not all done yet
+			if comp_status == "RUNNING" or comp_status == "" then
 				all_done = false
 			end
-			occ[status] = (occ[status] or 0) + 1
+		else
+			-- Compilation data missing, treat as error
+			utils.notify("Compilation data missing", "WARN")
+			r:set_restore_winid(api.nvim_get_current_win())
+			r:show_ui()
+			return
+		end
+
+		-- Then check generated test cases (tcdata[2] to tcdata[n+1])
+		for i = 1, n do
+			local tc = r.tcdata[i + 1]
+			if not tc then
+				-- If test case data is missing, treat as failure
+				has_errors = true
+				occ["FAILED"] = (occ["FAILED"] or 0) + 1
+			else
+				local status = tc.status
+				-- For test cases, check if finished but not in successful state
+				if
+					status ~= "DONE"
+					and status ~= "TIMEOUT"
+					and status ~= "FAILED"
+					and status ~= "KILLED"
+					and not string.find(status, "RET ")
+					and not string.find(status, "SIG ")
+					and status ~= ""
+					and status ~= "RUNNING"
+				then
+					has_errors = true
+				end
+
+				-- Check if the test case is still running or not yet started
+				if status ~= "" and status ~= "RUNNING" then -- Test case is finished
+					-- If it's not DONE, count as error for generator
+					if status ~= "DONE" then
+						has_errors = true
+					end
+					occ[status] = (occ[status] or 0) + 1
+				else
+					all_done = false
+				end
+			end
 		end
 
 		local elapsed = vim.loop.now() - start_time
-		if all_done or elapsed > timeout_ms then
+		if all_done or elapsed > INPUT_GENERATION_TIMEOUT or has_errors then
 			-- Generation completed or timed out
 			utils.notify("Done generating inputs! Generated " .. (occ["DONE"] or 0) .. " cases.", "TRACE")
 
@@ -589,7 +680,7 @@ function M.generate_input(n, command_line_args)
 		else
 			-- Schedule next poll
 			vim.schedule(function()
-				vim.defer_fn(poll_generation, poll_interval)
+				vim.defer_fn(poll_generation, POLL_INTERVAL)
 			end)
 		end
 	end

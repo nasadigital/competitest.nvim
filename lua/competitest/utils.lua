@@ -176,21 +176,19 @@ end
 function M.run_external_command(cmd, on_exit, cwd)
 	local output_lines = {}
 	local error_lines = {}
-	
+
 	-- Capture output for potential use in default callback
 	local default_on_exit = function(exit_code, signal)
 		if exit_code ~= 0 then
 			local stdout_output = #output_lines > 0 and table.concat(output_lines, "\n") or "No output"
 			local stderr_output = #error_lines > 0 and table.concat(error_lines, "\n") or "No errors"
-			M.notify("Command failed with exit code: " .. tostring(exit_code) .. 
-			         "\nSTDOUT: " .. stdout_output .. 
-			         "\nSTDERR: " .. stderr_output, "WARN")
+			M.notify("Command failed with exit code: " .. tostring(exit_code) .. "\nSTDOUT: " .. stdout_output .. "\nSTDERR: " .. stderr_output, "WARN")
 		end
 	end
 
 	-- Use the provided callback, or the default one that shows output on failure
 	local final_on_exit = on_exit or default_on_exit
-	
+
 	-- Modified callback that ensures output is included in custom callback
 	if on_exit then
 		local original_on_exit = on_exit
@@ -229,26 +227,26 @@ function M.run_external_command(cmd, on_exit, cwd)
 		end,
 		on_exit = function(_, exit_code, signal)
 			final_on_exit(exit_code, signal)
-		end
+		end,
 	}
-	
+
 	if cwd then
 		opts.cwd = cwd
 	end
 
 	-- Start the job
 	local ok, job_id = pcall(vim.fn.jobstart, cmd, opts)
-	
+
 	if not ok then
 		M.notify("Failed to start command: " .. table.concat(cmd, " "))
 		return nil
 	end
-	
+
 	if job_id <= 0 then
 		M.notify("Failed to start command: " .. table.concat(cmd, " "))
 		return nil
 	end
-	
+
 	return job_id
 end
 

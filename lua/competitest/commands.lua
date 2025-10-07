@@ -462,7 +462,7 @@ function M.generate_output(n, command_line_args)
 				if type(value.tcnum) == "number" then
 					new_tbl[idx - 1] = value
 					new_tbl[idx - 1].input = table.concat(new_tbl[idx - 1].stdout, "\n")
-					new_tbl[idx - 1].output = "" -- Empty expected output for the naive solution
+					new_tbl[idx - 1].output = nil
 				end
 			end
 
@@ -692,7 +692,7 @@ function M.generate_input(n, command_line_args)
 			for i = 1, n do
 				generated_testcases["TC " .. i] = {
 					input = table.concat(r.tcdata[i + 1].stdout, "\n"),
-					output = "",
+					output = nil,
 				}
 			end
 

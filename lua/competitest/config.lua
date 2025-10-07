@@ -147,6 +147,7 @@ local default_config = {
 	open_received_problems = true,
 	open_received_contests = true,
 	replace_received_testcases = false,
+	save_problem_statement = true,
 
 	generation_template_directory = false,
 }

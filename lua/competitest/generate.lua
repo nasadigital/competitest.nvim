@@ -33,6 +33,35 @@ function M.prepare_generation()
 		end
 	end
 	assert(luv.fs_closedir(dir), "CompetiTest.nvim: io_files.load: unable to close '" .. expanded_dir .. "'")
+	
+	-- Run custom generation command if configured
+	if cfg.custom_generation_command and type(cfg.custom_generation_command) == "table" then
+		-- Replace $(PROBLEM_DIR) placeholder with actual directory
+		local cmd = {}
+		for i, arg in ipairs(cfg.custom_generation_command) do
+			local replaced_arg = string.gsub(arg, "%$%(PROBLEM_DIR%)", destdir)
+			table.insert(cmd, replaced_arg)
+		end
+		
+		-- Define callback for when the command finishes
+		local on_exit = function(exit_code, signal, stdout_output, stderr_output)
+			if exit_code == 0 then
+				utils.notify("Custom generation completed successfully.", "INFO")
+			else
+				local detailed_msg = "Custom generation failed with exit code: " .. tostring(exit_code) .. " in directory: " .. destdir
+				if stdout_output and stdout_output ~= "No output" then
+					detailed_msg = detailed_msg .. "\nSTDOUT: " .. stdout_output
+				end
+				if stderr_output and stderr_output ~= "No errors" then
+					detailed_msg = detailed_msg .. "\nSTDERR: " .. stderr_output
+				end
+				utils.notify(detailed_msg, "WARN")
+			end
+		end
+		
+		-- Run the command asynchronously
+		utils.run_external_command(cmd, on_exit, destdir)
+	end
 end
 
 return M

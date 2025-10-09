@@ -86,31 +86,55 @@ function M.init_ui(windows, config)
 	popup_settings.position = positions["tc"]
 	windows.tc = nui_popup(vim.deepcopy(popup_settings))
 
-	popup_settings.win_options.number = config.runner_ui.show_nu
-	popup_settings.win_options.relativenumber = config.runner_ui.show_rnu
+	-- Create a base popup settings template for other popups
+	local base_popup_settings = {
+		zindex = 50,
+		border = {
+			style = config.floating_border,
+			highlight = config.floating_border_highlight,
+			text = { top_align = "center" },
+		},
+		relative = "editor",
+		buf_options = {
+			modifiable = false,
+			readonly = false,
+			filetype = "CompetiTest",
+		},
+		win_options = {
+			number = config.runner_ui.show_nu,
+			relativenumber = config.runner_ui.show_rnu,
+			wrap = false,
+			spell = false,
+		},
+	}
+
 	-- stdout popup
-	popup_settings.border.text.top = " Output "
-	popup_settings.size = sizes["so"]
-	popup_settings.position = positions["so"]
-	windows.so = nui_popup(popup_settings)
+	local stdout_settings = vim.deepcopy(base_popup_settings)
+	stdout_settings.border.text.top = " Output "
+	stdout_settings.size = sizes["so"]
+	stdout_settings.position = positions["so"]
+	windows.so = nui_popup(stdout_settings)
 
 	-- expected output popup
-	popup_settings.border.text.top = " Expected Output "
-	popup_settings.size = sizes["eo"]
-	popup_settings.position = positions["eo"]
-	windows.eo = nui_popup(popup_settings)
+	local expected_output_settings = vim.deepcopy(base_popup_settings)
+	expected_output_settings.border.text.top = " Expected Output "
+	expected_output_settings.size = sizes["eo"]
+	expected_output_settings.position = positions["eo"]
+	windows.eo = nui_popup(expected_output_settings)
 
 	-- stdin popup
-	popup_settings.border.text.top = " Input "
-	popup_settings.size = sizes["si"]
-	popup_settings.position = positions["si"]
-	windows.si = nui_popup(popup_settings)
+	local stdin_settings = vim.deepcopy(base_popup_settings)
+	stdin_settings.border.text.top = " Input "
+	stdin_settings.size = sizes["si"]
+	stdin_settings.position = positions["si"]
+	windows.si = nui_popup(stdin_settings)
 
-	-- stderr popup
-	popup_settings.border.text.top = " Errors "
-	popup_settings.size = sizes["se"]
-	popup_settings.position = positions["se"]
-	windows.se = nui_popup(popup_settings)
+	-- stderr popup (error section)
+	local stderr_settings = vim.deepcopy(base_popup_settings)
+	stderr_settings.border.text.top = " Errors "
+	stderr_settings.size = sizes["se"]
+	stderr_settings.position = positions["se"]
+	windows.se = nui_popup(stderr_settings)
 
 	windows.so:mount()
 	windows.eo:mount()

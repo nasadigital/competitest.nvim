@@ -529,7 +529,8 @@ function storage_utils.store_contest(tasks, cfg, finished)
 			local_cfg.floating_border,
 			not local_cfg.received_contests_prompt_extension,
 			function(file_extension)
-				for _, task in ipairs(tasks) do
+				for i = #tasks, 1, -1 do
+					local task = tasks[i]
 					local problem_path = storage_utils.eval_path(local_cfg.received_contests_problems_path, task, file_extension)
 					if problem_path then
 						local filepath = directory .. "/" .. problem_path

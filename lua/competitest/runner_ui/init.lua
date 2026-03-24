@@ -391,9 +391,9 @@ function RunnerUI:update_ui()
 					l.header = data.tcnum
 				end
 				if data.time and data.time ~= -1 then
-					l.time = string.format("%.3f seconds", data.time / 1000)
+					l.time = string.format("%.2f s", data.time / 1000)
 				end
-				local hl = { line = tcindex - 1, start_pos = 10, end_pos = 10 + #l.status, group = data.hlgroup }
+				local hl = { line = tcindex - 1, start_pos = 7, end_pos = 7 + #l.status, group = data.hlgroup }
 
 				table.insert(lines, l)
 				table.insert(hlregions, hl)
@@ -411,7 +411,7 @@ function RunnerUI:update_ui()
 			-- render lines
 			local buffer_lines = {}
 			for _, line in pairs(lines) do
-				local line_str = adjust_string(10, line.header, " ") .. adjust_string(10, line.status, " ") .. line.time
+				local line_str = adjust_string(7, line.header, " ") .. adjust_string(9, line.status, " ") .. line.time
 				table.insert(buffer_lines, line_str)
 			end
 			local bufnr = self.windows.tc.bufnr

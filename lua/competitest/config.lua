@@ -59,8 +59,8 @@ local default_config = {
 		},
 	},
 	popup_ui = {
-		total_width = 0.8, -- from 0 to 1, total width of popup ui
-		total_height = 0.8, -- from 0 to 1, total height of popup ui
+		total_width = 0.85, -- from 0 to 1, total width of popup ui
+		total_height = 0.85, -- from 0 to 1, total height of popup ui
 		layout = {
 			{ 3, "tc" },
 			{ 4, {

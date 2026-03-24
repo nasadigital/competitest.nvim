@@ -69,7 +69,7 @@ function TCRunner:run_testcases(tctbl, compile, generated_testcases)
 		end
 		self.compile = compile and self.cc ~= nil
 		if self.compile then -- if compilation is needed we add it as a testcase
-			table.insert(self.tcdata, { stdin = {}, expout = nil, tcnum = "Compile" })
+			table.insert(self.tcdata, { stdin = {}, expout = nil, tcnum = "Comp" })
 		end
 
 		if generated_testcases then

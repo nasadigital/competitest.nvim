@@ -180,10 +180,10 @@ function M.delete_testcase(tcnum)
 		end
 		tcnum = item.id
 
-		local choice = vim.fn.confirm("Are you sure you want to delete Testcase " .. tcnum .. "?", "&Yes\n&No")
-		if choice == 2 then
+		local choice = vim.fn.confirm("Are you sure you want to delete Testcase " .. tcnum .. "?", "Yes\nNo")
+		if choice == 0 or choice == 2 then
 			return
-		end -- user chose "No"
+		end -- user pressed <esc> or chose "No"
 
 		if config.get_buffer_config(bufnr).testcases_use_single_file then
 			tctbl[tcnum] = nil
@@ -215,10 +215,10 @@ function M.convert_testcases(mode)
 			return
 		end
 		if not no_files then
-			local choice = vim.fn.confirm("Testcases files already exist, by proceeding they will be replaced.", "&Proceed\n&Cancel")
-			if choice == 2 then
+			local choice = vim.fn.confirm("Testcases files already exist, by proceeding they will be replaced.", "Proceed\nCancel")
+			if choice == 0 or choice == 2 then
 				return
-			end -- user chose "Cancel"
+			end -- user pressed <esc> or chose "Cancel"
 		end
 
 		for tcnum, _ in pairs(files_tctbl) do -- delete already existing files
@@ -234,10 +234,10 @@ function M.convert_testcases(mode)
 			return
 		end
 		if not no_singlefile then
-			local choice = vim.fn.confirm("Testcases single file already exists, by proceeding it will be replaced.", "&Proceed\n&Cancel")
-			if choice == 2 then
+			local choice = vim.fn.confirm("Testcases single file already exists, by proceeding it will be replaced.", "Proceed\nCancel")
+			if choice == 0 or choice == 2 then
 				return
-			end -- user chose "Cancel"
+			end -- user pressed <esc> or chose "Cancel"
 		end
 
 		for tcnum, _ in pairs(files_tctbl) do -- delete already existing files
@@ -655,72 +655,33 @@ function M.receive(mode)
 	local function eval_path(path, task, file_extension)
 		local init_dir
 		if type(path) == "string" then
-			init_dir = receive.eval_receive_modifiers(path, task, file_extension, true)
+			init_dir = receive.storage_utils.eval_path(path, task, file_extension)
 		elseif type(path) == "function" then
 			init_dir = path(task, file_extension)
 		end
 		return init_dir or ""
 	end
 
-	if mode == "testcases" then
+	if mode == "stop" then
+		receive.stop_receiving()
+	elseif mode == "status" then
+		receive.show_status()
+	elseif mode == "testcases" then
 		local bufnr = api.nvim_get_current_buf()
 		config.load_buffer_config(bufnr)
 		local bufcfg = config.get_buffer_config(bufnr)
-		local notify_string = bufcfg.receive_print_message and "testcases" or nil
-		receive.receive(bufcfg.companion_port, true, notify_string, function(tasks)
-			receive.store_testcases(bufnr, tasks[1].tests, bufcfg.testcases_use_single_file, bufcfg.replace_received_testcases)
-		end)
-	elseif mode == "problem" then
-		local setup = config.current_setup
-		local notify_string = setup.receive_print_message and "problem" or nil
-		receive.receive(setup.companion_port, true, notify_string, function(tasks)
-			widgets.input(
-				"Choose problem path",
-				eval_path(setup.received_problems_path, tasks[1], setup.received_files_extension),
-				setup.floating_border,
-				not setup.received_problems_prompt_path,
-				function(filepath)
-					-- Load local configuration from the target directory
-					local file_directory = vim.fn.fnamemodify(filepath, ":h")
-					local cfg = config.load_local_config_and_extend(file_directory)
-					local line = receive.store_problem_config(filepath, true, tasks[1], cfg) or 1
-					if cfg.open_received_problems then
-						api.nvim_command("edit +" .. tostring(line) .. " " .. filepath)
-					end
-				end
-			)
-		end)
-	elseif mode == "contest" then
-		local setup = config.current_setup
-		local notify_string = setup.receive_print_message and "contest" or nil
-		receive.receive(setup.companion_port, false, notify_string, function(tasks)
-			widgets.input(
-				"Choose contest directory",
-				eval_path(setup.received_contests_directory, tasks[1], setup.received_files_extension),
-				setup.floating_border,
-				not setup.received_contests_prompt_directory,
-				function(directory)
-					local cfg = config.load_local_config_and_extend(directory)
-					widgets.input(
-						"Choose files extension",
-						cfg.received_files_extension,
-						cfg.floating_border,
-						not cfg.received_contests_prompt_extension,
-						function(file_extension)
-							for i = #tasks, 1, -1 do
-								local task = tasks[i]
-								local filepath = directory .. "/" .. eval_path(cfg.received_contests_problems_path, task, file_extension)
-								local line = receive.store_problem_config(filepath, true, task, cfg) or 1
-								if cfg.open_received_contests then
-									local escaped_filepath = vim.fn.fnameescape(filepath)
-									api.nvim_command("edit +" .. tostring(line) .. " " .. escaped_filepath)
-								end
-							end
-						end
-					)
-				end
-			)
-		end)
+		local notify = bufcfg.receive_print_message
+		local error = receive.start_receiving("testcases", bufcfg.companion_port, notify, notify, bufnr, bufcfg)
+		if error then
+			utils.notify("receive: " .. error .. ".")
+		end
+	elseif mode == "problem" or mode == "contest" or mode == "persistently" then
+		local cfg = config.load_local_config_and_extend(vim.fn.getcwd())
+		local notify = cfg.receive_print_message
+		local error = receive.start_receiving(mode, cfg.companion_port, notify, notify, nil, cfg)
+		if error then
+			utils.notify("receive: " .. error .. ".")
+		end
 	else
 		utils.notify("receive: unrecognized mode '" .. tostring(mode) .. "'.")
 	end

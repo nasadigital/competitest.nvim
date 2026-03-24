@@ -21,6 +21,8 @@ function RunnerUI:new(runner)
 		update_details = false, -- if true update details windows
 		update_windows = false, -- if true update all the windows
 		update_testcase = nil, -- index of testcase to update
+		filter_correct = false, -- if true filter out DONE and CORRECT testcases
+		displayed_tc_map = {}, -- mapping from displayed line to actual testcase index
 
 		windows = {
 			si = nil, -- standard input
@@ -177,6 +179,13 @@ function RunnerUI:show_ui()
 			end, { noremap = true })
 		end
 
+		-- filter correct testcases
+		for _, map in ipairs(self.runner.config.runner_ui.mappings.filter_correct) do
+			self.windows.tc:map("n", map, function()
+				self:toggle_filter_correct()
+			end, { noremap = true })
+		end
+
 		-- toggle diff view between expected and standard output
 		for _, map in ipairs(self.runner.config.runner_ui.mappings.toggle_diff) do
 			self.windows.tc:map("n", map, function()
@@ -249,6 +258,13 @@ function RunnerUI:toggle_diff_view()
 	self.diff_view = not self.diff_view
 	win_set_diff(self.windows.eo.winid, self.diff_view)
 	win_set_diff(self.windows.so.winid, self.diff_view)
+end
+
+---Toggle filtering of DONE and CORRECT testcases
+function RunnerUI:toggle_filter_correct()
+	self.filter_correct = not self.filter_correct
+	self.update_windows = true
+	self:update_ui()
 end
 
 ---Disable diffview between standard output and expected output windows
@@ -381,22 +397,29 @@ function RunnerUI:update_ui()
 			local lines = {}
 			local hlregions = {}
 			local correct_testcases = 0
+			self.displayed_tc_map = {}
 
 			for tcindex, data in ipairs(self.runner.tcdata) do
 				if data.status == "CORRECT" or data.status == "DONE" then
 					correct_testcases = correct_testcases + 1
+				end
+				if self.filter_correct and (data.status == "CORRECT" or data.status == "DONE") then
+					goto continue
 				end
 				local l = { header = "TC " .. data.tcnum, status = data.status, time = "" }
 				if type(data.tcnum) == "string" then
 					l.header = data.tcnum
 				end
 				if data.time and data.time ~= -1 then
-					l.time = string.format("%.3f seconds", data.time / 1000)
+					l.time = string.format("%.2f s", data.time / 1000)
 				end
-				local hl = { line = tcindex - 1, start_pos = 10, end_pos = 10 + #l.status, group = data.hlgroup }
+				local displayed_line = #lines
+				local hl = { line = displayed_line, start_pos = 7, end_pos = 7 + #l.status, group = data.hlgroup }
 
 				table.insert(lines, l)
 				table.insert(hlregions, hl)
+				self.displayed_tc_map[displayed_line + 1] = tcindex
+				::continue::
 			end
 
 			local title = "Testcases"
@@ -411,7 +434,7 @@ function RunnerUI:update_ui()
 			-- render lines
 			local buffer_lines = {}
 			for _, line in pairs(lines) do
-				local line_str = adjust_string(10, line.header, " ") .. adjust_string(10, line.status, " ") .. line.time
+				local line_str = adjust_string(7, line.header, " ") .. adjust_string(9, line.status, " ") .. line.time
 				table.insert(buffer_lines, line_str)
 			end
 			local bufnr = self.windows.tc.bufnr
@@ -428,7 +451,11 @@ function RunnerUI:update_ui()
 		if self.update_details then
 			self.update_details = false
 
-			local data = self.runner.tcdata[self.update_testcase or 1]
+			local tcindex = self.update_testcase or 1
+			if self.filter_correct and self.displayed_tc_map[tcindex] then
+				tcindex = self.displayed_tc_map[tcindex]
+			end
+			local data = self.runner.tcdata[tcindex]
 			if not data then
 				return
 			end

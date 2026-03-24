@@ -407,7 +407,10 @@ end
 ---@param confirm_overwriting boolean whether to ask user to overwrite an already existing file or not
 ---@param task competitest.CCTask received task
 ---@param cfg competitest.Config current CompetiTest configuration
+---@return integer? # line number to open file at, or nil
 function storage_utils.store_received_task_config(filepath, confirm_overwriting, task, cfg)
+	local open_line = 1
+
 	if confirm_overwriting and utils.does_file_exist(filepath) then
 		local choice = vim.fn.confirm('Do you want to overwrite "' .. filepath .. '"?', "Yes\nNo")
 		if choice == 0 or choice == 2 then -- user pressed <esc> or chose "No"
@@ -448,6 +451,9 @@ function storage_utils.store_received_task_config(filepath, confirm_overwriting,
 			utils.create_directory(file_directory)
 			luv.fs_copyfile(template_file, filepath)
 		end
+		if cfg.template_fileline then
+			open_line = cfg.template_fileline
+		end
 	else
 		utils.write_string_on_file(filepath, "")
 	end
@@ -475,6 +481,8 @@ function storage_utils.store_received_task_config(filepath, confirm_overwriting,
 		local statement_filepath = file_directory .. "/statement.txt"
 		utils.write_string_on_file(statement_filepath, task.statement)
 	end
+
+	return open_line
 end
 
 ---Utility function to store a single received problem
@@ -495,9 +503,9 @@ function storage_utils.store_single_problem(task, cfg, finished)
 	widgets.input("Choose problem path", evaluated_problem_path, cfg.floating_border, not cfg.received_problems_prompt_path, function(filepath)
 		local config = require("competitest.config")
 		local local_cfg = config.load_local_config_and_extend(vim.fn.fnamemodify(filepath, ":h"))
-		storage_utils.store_received_task_config(filepath, true, task, local_cfg)
+		local line = storage_utils.store_received_task_config(filepath, true, task, local_cfg) or 1
 		if local_cfg.open_received_problems then
-			vim.api.nvim_command("edit " .. vim.fn.fnameescape(filepath))
+			vim.api.nvim_command("edit +" .. tostring(line) .. " " .. vim.fn.fnameescape(filepath))
 		end
 		if finished then
 			finished()
@@ -534,9 +542,9 @@ function storage_utils.store_contest(tasks, cfg, finished)
 					local problem_path = storage_utils.eval_path(local_cfg.received_contests_problems_path, task, file_extension)
 					if problem_path then
 						local filepath = directory .. "/" .. problem_path
-						storage_utils.store_received_task_config(filepath, true, task, local_cfg)
+						local line = storage_utils.store_received_task_config(filepath, true, task, local_cfg) or 1
 						if local_cfg.open_received_contests then
-							vim.api.nvim_command("edit " .. vim.fn.fnameescape(filepath))
+							vim.api.nvim_command("edit +" .. tostring(line) .. " " .. vim.fn.fnameescape(filepath))
 						end
 					else
 						utils.notify("'received_contests_problems_path' evaluation failed for task '" .. task.name .. "'")

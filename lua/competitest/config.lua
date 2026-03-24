@@ -49,6 +49,7 @@ local default_config = {
 			toggle_diff = { "d", "D" },
 			close = { "q", "Q" },
 			add_testcase = { "p", "P" },
+			filter_correct = { "f", "F" },
 		},
 		viewer = { -- viewer window, to view in detail a stream (input, expected output, stdout or stderr)
 			width = 0.5, -- from 0 to 1

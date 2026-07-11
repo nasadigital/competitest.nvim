@@ -47,6 +47,26 @@ function TCRunner:new(bufnr, given_filename, given_args)
 	end
 
 	setmetatable(this, self)
+
+	-- Auto-detect checker: look for checker.<filetype> in problem directory
+	-- Only for the main solution runner (not generators or correct runners)
+	if not given_filename then
+	local checker_source = filedir .. "checker." .. filetype
+	this.checker_bin = this.running_directory .. "checker"
+	if utils.does_file_exist(checker_source) then
+		local checker_cfg = buf_cfg.compile_command[filetype]
+		if checker_cfg then
+			this.has_checker_source = true
+			local checker_exec = utils.buf_eval_string(bufnr, checker_cfg.exec, nil, checker_source)
+			local checker_args = {}
+			for i, arg in ipairs(checker_cfg.args or {}) do
+				checker_args[i] = utils.buf_eval_string(bufnr, arg, nil, checker_source)
+			end
+			this.checker_cc = { exec = checker_exec, args = checker_args }
+		end
+	end
+	end
+
 	return this
 end
 
@@ -149,9 +169,29 @@ function TCRunner:run_testcases(tctbl, compile, generated_testcases)
 		run_first_testcases()
 	else
 		next_tc = 2
+		local function run_tests_after_compile()
+			run_first_testcases()
+		end
+
+		local function checker_compile_callback()
+			if self.tcdata[1].exit_code ~= 0 then
+				utils.notify("Checker compilation failed, falling back to string comparison.", "WARN")
+			end
+			run_tests_after_compile()
+		end
+
 		local function compilation_callback()
-			if self.tcdata[1].exit_code == 0 then
-				run_first_testcases()
+			if self.tcdata[1].exit_code ~= 0 then
+				return
+			end
+			if self.checker_cc then
+				-- Compile checker after solution
+				self.tcdata[1].status = ""
+				self.tcdata[1].hlgroup = "CompetiTestRunning"
+				self:execute_testcase(1, self.checker_cc.exec, self.checker_cc.args,
+					self.compile_directory, checker_compile_callback)
+			else
+				run_tests_after_compile()
 			end
 		end
 
@@ -248,6 +288,16 @@ function TCRunner:execute_testcase(tcindex, exec, args, dir, callback)
 			if not tc.running and tc.status ~= "RUNNING" then
 				return
 			end
+			-- Try custom checker if binary exists (skip for compilation testcase)
+			if tc.tcnum ~= "Comp" and self.checker_bin and utils.does_file_exist(self.checker_bin) then
+				self:run_checker(tc, function(verdict)
+					tc.status = verdict
+					tc.hlgroup = verdict == "CORRECT" and "CompetiTestCorrect" or "CompetiTestWrong"
+					self:update_ui(true)
+				end)
+				return
+			end
+
 			local correct = require("competitest.compare").compare_output(
 				table.concat(tc.stdout, "\n"),
 				tc.expout and table.concat(tc.expout, "\n"),
@@ -298,6 +348,165 @@ function TCRunner:execute_testcase(tcindex, exec, args, dir, callback)
 	tc.running = true
 	tc.killed = false
 	self:update_ui(true)
+end
+
+---Run the custom checker to evaluate a testcase
+---@param tc table: testcase data table (stdin, stdout, expout)
+---@param callback function: called with verdict string ("CORRECT" or "WRONG")
+function TCRunner:run_checker(tc, callback)
+	local tmpdir = "/tmp/competitest_checker"
+	os.execute("mkdir -p " .. tmpdir)
+
+	-- Unique tag per testcase within this runner
+	local tag = tostring(self.bufnr) .. "_" .. tostring(tc.tcnum)
+	local input_file = tmpdir .. "/in_" .. tag .. ".txt"
+	local output_file = tmpdir .. "/out_" .. tag .. ".txt"
+	local answer_file = tmpdir .. "/ans_" .. tag .. ".txt"
+
+	local function write_file(path, content)
+		local f = io.open(path, "w")
+		if f then
+			f:write(content)
+			f:close()
+		end
+	end
+
+	write_file(input_file, table.concat(tc.stdin, "\n"))
+	write_file(output_file, table.concat(tc.stdout, "\n"))
+
+	local checker_args = { input_file, output_file }
+	if tc.expout then
+		write_file(answer_file, table.concat(tc.expout, "\n"))
+		table.insert(checker_args, answer_file)
+	end
+
+	local stdin_pipe = luv.new_pipe(false)
+	local stdout_pipe = luv.new_pipe(false)
+	local stderr_pipe = luv.new_pipe(false)
+
+	local checker_timeout = 5000
+	local checker_timer = luv.new_timer()
+	local checker_handle = nil
+	local checker_pid = nil
+	local exit_code = 0
+
+	local function cleanup_temp_files()
+		os.remove(input_file)
+		os.remove(output_file)
+		if tc.expout then
+			os.remove(answer_file)
+		end
+	end
+
+	checker_timer:start(checker_timeout, 0, function()
+		if checker_pid then
+			luv.process_kill(checker_pid, "sigkill")
+		end
+		-- Force-close pipes so read_start close callbacks fire
+		if not stdout_pipe:is_closing() then
+			stdout_pipe:close()
+		end
+		if not stderr_pipe:is_closing() then
+			stderr_pipe:close()
+		end
+		checker_timer:stop()
+		checker_timer:close()
+	end)
+
+	local checker_stdout = { "" }
+	local checker_stderr = { "" }
+	local stdout_closed = false
+	local stderr_closed = false
+
+	local function on_both_pipes_closed()
+		-- Stop timer and close handles
+		if checker_timer and not checker_timer:is_closing() then
+			checker_timer:stop()
+			checker_timer:close()
+		end
+		if checker_handle and not checker_handle:is_closing() then
+			checker_handle:close()
+		end
+		if not stdin_pipe:is_closing() then
+			stdin_pipe:close()
+		end
+
+		-- Append checker diagnostics to tc.stderr
+		tc.stderr[#tc.stderr + 1] = ""
+		tc.stderr[#tc.stderr + 1] = "[checker stdout]"
+		for _, line in ipairs(checker_stdout) do
+			tc.stderr[#tc.stderr + 1] = line
+		end
+		tc.stderr[#tc.stderr + 1] = ""
+		tc.stderr[#tc.stderr + 1] = "[checker stderr]"
+		for _, line in ipairs(checker_stderr) do
+			tc.stderr[#tc.stderr + 1] = line
+		end
+		self:update_ui(true)
+
+		cleanup_temp_files()
+		callback(exit_code == 0 and "CORRECT" or "WRONG")
+	end
+
+	checker_handle, checker_pid = luv.spawn(self.checker_bin, {
+		args = checker_args,
+		cwd = self.running_directory,
+		stdio = { stdin_pipe, stdout_pipe, stderr_pipe },
+	}, function(code, signal)
+		exit_code = code or 0
+		if signal ~= 0 then
+			exit_code = 1
+		end
+	end)
+
+	if not checker_handle then
+		cleanup_temp_files()
+		callback("WRONG")
+		return
+	end
+
+	-- Close stdin immediately (checker reads from files, not stdin)
+	stdin_pipe:close()
+
+	luv.read_start(stdout_pipe, function(err, data)
+		if err or not data then
+			if not stdout_pipe:is_closing() then
+				stdout_pipe:read_stop()
+				stdout_pipe:close()
+			end
+			stdout_closed = true
+			if stderr_closed then
+				on_both_pipes_closed()
+			end
+		else
+			local received_lines = vim.split(string.gsub(data, "\r\n", "\n"), "\n", { plain = true })
+			local n = #checker_stdout
+			for _, line in ipairs(received_lines) do
+				checker_stdout[n] = (checker_stdout[n] or "") .. line
+				n = n + 1
+			end
+		end
+	end)
+
+	luv.read_start(stderr_pipe, function(err, data)
+		if err or not data then
+			if not stderr_pipe:is_closing() then
+				stderr_pipe:read_stop()
+				stderr_pipe:close()
+			end
+			stderr_closed = true
+			if stdout_closed then
+				on_both_pipes_closed()
+			end
+		else
+			local received_lines = vim.split(string.gsub(data, "\r\n", "\n"), "\n", { plain = true })
+			local n = #checker_stderr
+			for _, line in ipairs(received_lines) do
+				checker_stderr[n] = (checker_stderr[n] or "") .. line
+				n = n + 1
+			end
+		end
+	end)
 end
 
 ---Kill the process associated with a testcase

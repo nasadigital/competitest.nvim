@@ -157,6 +157,9 @@ function RunnerUI:show_ui()
 		for _, map in ipairs(self.runner.config.runner_ui.mappings.add_testcase) do
 			self.windows.tc:map("n", map, function()
 				local tcindex = get_testcase_index_by_line()
+				if self.filter_correct and self.displayed_tc_map[tcindex] then
+					tcindex = self.displayed_tc_map[tcindex]
+				end
 				local tc_data = self.runner.tcdata[tcindex]
 				if tc_data and tc_data.stdin then
 					local input_str = table.concat(tc_data.stdin, "\n")

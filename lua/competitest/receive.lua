@@ -478,7 +478,7 @@ function storage_utils.store_received_task_config(filepath, confirm_overwriting,
 
 	-- Store the problem statement if provided and enabled in configuration
 	if task.statement and cfg.save_problem_statement then
-		local statement_filepath = file_directory .. "/statement.txt"
+		local statement_filepath = file_directory .. "/statement.html"
 		utils.write_string_on_file(statement_filepath, task.statement)
 	end
 

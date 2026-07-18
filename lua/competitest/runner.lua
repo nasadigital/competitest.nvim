@@ -48,11 +48,11 @@ function TCRunner:new(bufnr, given_filename, given_args)
 
 	setmetatable(this, self)
 
-	-- Auto-detect checker: look for checker.<filetype> in problem directory
+	-- Auto-detect checker: look for chk.<filetype> in problem directory
 	-- Only for the main solution runner (not generators or correct runners)
 	if not given_filename then
-	local checker_source = filedir .. "checker." .. filetype
-	this.checker_bin = this.running_directory .. "checker"
+	local checker_source = filedir .. "chk." .. filetype
+	this.checker_bin = this.running_directory .. "chk"
 	if utils.does_file_exist(checker_source) then
 		local checker_cfg = buf_cfg.compile_command[filetype]
 		if checker_cfg then

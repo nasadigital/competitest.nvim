@@ -83,9 +83,11 @@ function M.command(args)
 			end
 		end,
 		prepare_generation = function()
-			if check_subargs(0, 0) then
-				M.prepare_generation()
+			local passed_args = nil
+			if args[2] then
+				passed_args = { unpack(args, 2) }
 			end
+			M.prepare_generation(passed_args)
 		end,
 		generate_input = function()
 			local n = 1
@@ -462,9 +464,9 @@ function M.generate_with_runner(n, command_line_args, genfilename, bufnr, on_suc
 	poll_generation()
 end
 
-function M.prepare_generation()
+function M.prepare_generation(passed_args)
 	local generation = require("competitest.generate")
-	generation.prepare_generation()
+	generation.prepare_generation(passed_args)
 end
 
 function M.generate_output(n, command_line_args)

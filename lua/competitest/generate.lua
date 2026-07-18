@@ -4,7 +4,7 @@ local config = require("competitest.config")
 local utils = require("competitest.utils")
 local M = {}
 
-function M.prepare_generation()
+function M.prepare_generation(passed_args)
 	local bufnr = api.nvim_get_current_buf()
 	local cfg = config.get_buffer_config(bufnr)
 	if type(cfg.generation_template_directory) ~= "string" then
@@ -41,6 +41,12 @@ function M.prepare_generation()
 		for i, arg in ipairs(cfg.custom_generation_command) do
 			local replaced_arg = string.gsub(arg, "%$%(PROBLEM_DIR%)", destdir)
 			table.insert(cmd, replaced_arg)
+		end
+		-- Append passed args if any
+		if passed_args then
+			for _, arg in ipairs(passed_args) do
+				table.insert(cmd, arg)
+			end
 		end
 
 		-- Define callback for when the command finishes
